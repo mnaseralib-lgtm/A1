@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>نظام الحضور الذكي</title>
+  <meta name="theme-color" content="#0d9488" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <style>
+    :root{--accent:#0d9488;--bg:#f8fafb;--card:#ffffff}
+    html,body{height:100%;margin:0;font-family:Tahoma, Arial, sans-serif; background:var(--bg);color:#0f172a}
+    .app{max-width:420px;margin:18px auto;padding:18px}
+    header{display:flex;align-items:center;gap:12px;direction:rtl}
+    h1{margin:0;font-size:20px;text-align:center}
+    .card{background:var(--card);padding:12px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,0.06);margin-top:12px}
+    label{display:block;margin-bottom:6px;font-weight:600}
+    input,select,button{width:100%;padding:10px;border:1px solid #e6eef0;border-radius:8px;font-size:14px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .actions{display:flex;gap:8px}
+    .small{font-size:13px}
+    pre{white-space:pre-wrap;background:#f1f5f9;padding:8px;border-radius:8px;overflow:auto}
+    footer{margin-top:16px;font-size:13px;color:#475569;direction:rtl;text-align:center}
+    .btn-row{display:flex;gap:8px}
+    .btn{flex:1;padding:10px;border-radius:8px;border:none;color:white;font-weight:700;cursor:pointer}
+    .btn.in{background:#0ea5a4}
+    .btn.out{background:#ef4444}
+    .status{margin-top:10px;text-align:center;font-weight:600}
+    @media(max-width:480px){.app{margin:10px;padding:12px}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="card">
+      <h1>نظام الحضور الذكي</h1>
+      <label for="hr">رمز الموظف</label>
+      <input id="hr" placeholder="أدخل رمز الموظف أو امسح QR" autocomplete="off" />
+      <label for="action">نوع الحركة</label>
+      <select id="action">
+        <option value="دخول">دخول</option>
+        <option value="خروج">خروج</option>
+        <option value="خروج مسائي">خروج مسائي</option>
+      </select>
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn in" id="btnIn">تسجيل دخول</button>
+        <button class="btn out" id="btnOut">تسجيل خروج</button>
+      </div>
+      <div style="margin-top:8px;display:flex;gap:8px">
+        <button id="btnScan" style="flex:1;padding:8px;border-radius:8px;border:1px solid #e6eef0">فتح الكاميرا لمسح QR</button>
+        <button id="btnClear" style="flex:1;padding:8px;border-radius:8px;border:1px solid #e6eef0">مسح</button>
+      </div>
+      <div id="scanArea" style="margin-top:12px;display:none">
+        <video id="video" playsinline style="width:100%;border-radius:8px;outline:1px solid #e2e8f0"></video>
+      </div>
+      <div id="status" class="status"></div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3 style="text-align:right">توليد تقارير</h3>
+      <label>نوع التقرير</label>
+      <select id="reportType">
+        <option value="daily">يومي</option>
+        <option value="single_labor">تفصيلي لموظف</option>
+        <option value="period">فترة</option>
+      </select>
+      <div id="reportParams" style="margin-top:8px"></div>
+      <div style="margin-top:8px;display:flex;gap:8px">
+        <button id="getReport" style="flex:1;padding:10px;border-radius:8px;border:none;background:#2563eb;color:white">احصل على التقرير</button>
+        <button id="exportCsv" style="flex:1;padding:10px;border-radius:8px;border:none;background:#10b981;color:white">تنزيل CSV</button>
+      </div>
+      <div id="reportResult" style="margin-top:10px;max-height:240px;overflow:auto"></div>
+    </div>
+
+    <footer>مبني للعمل مع Google Apps Script — تأكد أن السكربت يسمح بطلبات POST من أصل الموقع.</footer>
+  </div>
+
+<script>
+const API_URL = "https://script.google.com/macros/s/AKfycbzCLMXWyMKF7zjbhXZGrsyYwG0IMk2Cwiph6kbbTgleQRPuYa8JwKNFT6xPJypMneLK/exec";
+
+function $(id){return document.getElementById(id)}
+function setStatus(msg, error){ const el=$('status'); el.textContent = msg; el.style.color = error ? '#b91c1c' : '#065f46' }
+
+async function postAttendance(hrCode, recordAction){
+  const params = new URLSearchParams();
+  params.append('action','postAttendance');
+  params.append('hrCode', hrCode);
+  params.append('recordAction', recordAction);
+
+  try{
+    const res = await fetch(API_URL, { method: 'POST', body: params });
+    const data = await res.json();
+    if(data && data.status === 'success') setStatus(data.message,false)
+    else if(data && data.status === 'error') setStatus(data.message,true)
+    else setStatus('تم الإرسال (استجابة غير متوقعة)', false)
+  }catch(err){
+    setStatus('خطأ في الاتصال: ' + err.message, true)
+  }
+}
+
+$('btnIn').addEventListener('click', ()=>{
+  const hr = $('hr').value.trim();
+  if(!hr){ setStatus('يرجى إدخال رمز الموظف', true); return; }
+  postAttendance(hr, 'دخول')
+})
+$('btnOut').addEventListener('click', ()=>{
+  const hr = $('hr').value.trim();
+  if(!hr){ setStatus('يرجى إدخال رمز الموظف', true); return; }
+  postAttendance(hr, $('action').value || 'خروج')
+})
+$('btnClear').addEventListener('click', ()=>{ $('hr').value=''; setStatus(''); })
+
+/* QR scanning using BarcodeDetector if available */
+let scanning=false, stream=null;
+const video = $('video');
+async function startScan(){
+  try{
+    $('scanArea').style.display='block';
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    video.srcObject = stream; await video.play(); scanning=true;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const detectorAvailable = ('BarcodeDetector' in window);
+    const detector = detectorAvailable ? new BarcodeDetector({formats:['qr_code']}) : null;
+
+    (function tick(){
+      if(!scanning) return;
+      if(video.readyState===video.HAVE_ENOUGH_DATA){
+        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+        ctx.drawImage(video,0,0,canvas.width,canvas.height);
+        if(detector){
+          detector.detect(canvas).then(codes=>{
+            if(codes && codes.length){
+              const raw = codes[0].rawValue;
+              stopScan();
+              $('hr').value = raw;
+              setStatus('تم مسح QR: ' + raw, false);
+            }
+          }).catch(()=>{})
+        }
+      }
+      requestAnimationFrame(tick);
+    })();
+  }catch(e){
+    stopScan();
+    setStatus('لا يمكن الوصول إلى الكاميرا: ' + e.message, true);
+  }
+}
+function stopScan(){ scanning=false; if(video){ video.pause() } if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null } $('scanArea').style.display='none' }
+$('btnScan').addEventListener('click', ()=>{ if(scanning) stopScan(); else startScan() })
+video.addEventListener('click', stopScan)
+
+/* Reports UI */
+function renderReportParams(){
+  const t = $('reportType').value;
+  const p = $('reportParams');
+  p.innerHTML='';
+  if(t==='daily'){
+    p.innerHTML = '<label>التاريخ (YYYY-MM-DD)</label><input id="r_date" placeholder="2025-10-30" />'
+  }else if(t==='single_labor'){
+    p.innerHTML = '<label>رمز الموظف</label><input id="r_hr" placeholder="مثال: 1001"/><label>بداية (YYYY-MM-DD)</label><input id="r_start" placeholder="2025-10-01"/><label>نهاية (YYYY-MM-DD)</label><input id="r_end" placeholder="2025-10-30"/>'
+  }else{
+    p.innerHTML = '<label>بداية (YYYY-MM-DD)</label><input id="r_start" placeholder="2025-10-01"/><label>نهاية (YYYY-MM-DD)</label><input id="r_end" placeholder="2025-10-30"/>'
+  }
+}
+$('reportType').addEventListener('change', renderReportParams);
+renderReportParams();
+
+async function getReport(){
+  const t = $('reportType').value;
+  const params = new URLSearchParams();
+  params.append('action','getReportData');
+  params.append('reportType', t);
+  if(t==='daily'){
+    const d = $('r_date').value.trim(); if(!d){ setStatus('أدخل التاريخ', true); return; } params.append('date', d)
+  } else if(t==='single_labor'){
+    const hr = $('r_hr').value.trim(); const s=$('r_start').value.trim(); const e=$('r_end').value.trim();
+    if(!hr||!s||!e){ setStatus('أدخل كل الحقول', true); return; } params.append('hrCode',hr); params.append('startDate',s); params.append('endDate',e)
+  } else {
+    const s=$('r_start').value.trim(); const e=$('r_end').value.trim(); if(!s||!e){ setStatus('أدخل كل الحقول', true); return; } params.append('startDate',s); params.append('endDate',e)
+  }
+
+  try{
+    setStatus('جاري تحميل التقرير...');
+    const res = await fetch(API_URL, { method: 'POST', body: params });
+    const json = await res.json();
+    if(json && json.headers && json.rows){
+      renderReport(json);
+      setStatus('تم تحميل التقرير', false)
+    } else {
+      setStatus('استجابة غير متوقعة من الخادم', true)
+    }
+  }catch(err){
+    setStatus('خطأ في الاتصال: ' + err.message, true)
+  }
+}
+
+function renderReport(data){
+  const container = $('reportResult');
+  let html = '<h4 style="text-align:right">'+(data.title||'التقرير')+'</h4>';
+  html += '<table style="width:100%;border-collapse:collapse">';
+  html += '<thead><tr>' + (data.headers||[]).map(h=>'<th style="text-align:right;padding:6px;border-bottom:1px solid #e6eef0">'+h+'</th>').join('') + '</tr></thead>';
+  html += '<tbody>' + (data.rows||[]).map(r=>'<tr>' + r.map(c=>'<td style="padding:6px;border-bottom:1px dashed #eef2f7;text-align:right">'+c+'</td>').join('') + '</tr>').join('') + '</tbody>';
+  html += '</table>';
+  container.innerHTML = html;
+}
+
+$('getReport').addEventListener('click', getReport);
+$('exportCsv').addEventListener('click', ()=>{
+  const table = document.querySelector('#reportResult table');
+  if(!table){ setStatus('لا يوجد تقرير للتصدير', true); return; }
+  const rows = Array.from(table.querySelectorAll('tr')).map(tr=>Array.from(tr.querySelectorAll('th,td')).map(td=>'"'+td.innerText.replace(/"/g,'""')+'"').join(','));
+  const csv = rows.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'report.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+})
+
+/* Register service worker */
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(()=>{})
+}
+</script>
+</body>
+</html>
